@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: blueprints-postgres
+    environment:
+      POSTGRES_DB: blueprintsdb
+      POSTGRES_USER: blueprints
+      POSTGRES_PASSWORD: blueprints
+    ports:
+      # 5432 del host suele estar ocupado por un PostgreSQL local -> se expone en 5434.
+      - "5434:5432"
+    volumes:
+      - blueprints_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U blueprints -d blueprintsdb"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  blueprints_pgdata:
