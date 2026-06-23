@@ -1,124 +1,207 @@
-## Laboratorio #4 – REST API Blueprints (Java 21 / Spring Boot 3.3.x)
-# Escuela Colombiana de Ingeniería – Arquitecturas de Software  
+# Blueprints REST API
+
+A REST API for managing **blueprints**: designs identified by an author and a name, made up
+of an ordered sequence of `(x, y)` points. It lets you create blueprints, query them and add
+points to them, exposing a clean HTTP contract with real persistence in PostgreSQL.
+
+> Project for Lab #4 of **Software Architecture (ARSW)** — Escuela Colombiana de Ingeniería
+> Julio Garavito. Built with Java 21 and Spring Boot 3.3.
 
 ---
 
-## 📋 Requisitos
-- Java 21
-- Maven 3.9+
+## What it does
 
-## ▶️ Ejecución del proyecto
-```bash
-mvn clean install
-mvn spring-boot:run
-```
-Probar con `curl`:
-```bash
-curl -s http://localhost:8080/blueprints | jq
-curl -s http://localhost:8080/blueprints/john | jq
-curl -s http://localhost:8080/blueprints/john/house | jq
-curl -i -X POST http://localhost:8080/blueprints -H 'Content-Type: application/json' -d '{ "author":"john","name":"kitchen","points":[{"x":1,"y":1},{"x":2,"y":2}] }'
-curl -i -X PUT  http://localhost:8080/blueprints/john/kitchen/points -H 'Content-Type: application/json' -d '{ "x":3,"y":3 }'
-```
+A *blueprint* is a design: it has an **author**, a **name** and an ordered list of **points**
+(integer `x`, `y` coordinates) that draw it. The API lets you store, query and modify them
+through REST endpoints, always returning a uniform response format and the correct HTTP codes.
 
-> Si deseas activar filtros de puntos (reducción de redundancia, *undersampling*, etc.), implementa nuevas clases que implementen `BlueprintsFilter` y cámbialas por `IdentityFilter` con `@Primary` o usando configuración de Spring.
----
-
-Abrir en navegador:  
-- Swagger UI: [http://localhost:8080/swagger-ui.html](http://localhost:8080/swagger-ui.html)  
-- OpenAPI JSON: [http://localhost:8080/v3/api-docs](http://localhost:8080/v3/api-docs)  
+Storage is **swappable without touching the business logic**: by default it keeps data in
+memory (handy to start with no infrastructure), and by activating a Spring profile it switches
+to persisting in a real **PostgreSQL** database.
 
 ---
 
-## 🗂️ Estructura de carpetas (arquitectura)
+## Stack
+
+| Technology | Purpose |
+|------------|---------|
+| Java 21 | Language |
+| Spring Boot 3.3.9 | Framework (web, validation, data-jpa) |
+| PostgreSQL 17 | Database (`postgres` profile) |
+| Hibernate / Spring Data JPA | Persistence |
+| springdoc-openapi 2.6 | Swagger / OpenAPI documentation |
+| Maven | Build |
+| Docker Compose | PostgreSQL for development |
+
+---
+
+## Architecture
+
+The code follows a **layered separation**, where each package has a single responsibility and
+the domain stays independent of any technology:
 
 ```
 src/main/java/edu/eci/arsw/blueprints
-  ├── model/         # Entidades de dominio: Blueprint, Point
-  ├── persistence/   # Interfaz + repositorios (InMemory, Postgres)
-  │    └── impl/     # Implementaciones concretas
-  ├── services/      # Lógica de negocio y orquestación
-  ├── filters/       # Filtros de procesamiento (Identity, Redundancy, Undersampling)
-  ├── controllers/   # REST Controllers (BlueprintsAPIController)
-  └── config/        # Configuración (Swagger/OpenAPI, etc.)
+  ├── model/         # Pure domain: Blueprint, Point (no framework annotations)
+  ├── persistence/   # BlueprintPersistence contract + implementations
+  │    ├── InMemoryBlueprintPersistence     (default profile)
+  │    ├── PostgresBlueprintPersistence      ("postgres" profile)
+  │    └── entity/   # JPA entities (BlueprintEntity, PointEmbeddable)
+  ├── services/      # Business logic (BlueprintsServices)
+  ├── filters/       # Optional point processing (Identity/Redundancy/Undersampling)
+  ├── controllers/   # REST controller + global exception handling
+  ├── dto/           # ApiResponse<T> (uniform wrapper)
+  └── config/        # OpenAPI/Swagger configuration
 ```
 
-> Esta separación sigue el patrón **capas lógicas** (modelo, persistencia, servicios, controladores), facilitando la extensión hacia nuevas tecnologías o fuentes de datos.
+**Key idea:** the domain classes `Blueprint` and `Point` know nothing about the database or
+HTTP. PostgreSQL persistence is achieved with **separate JPA entities** that translate
+entity ↔ domain, so switching storage (memory ↔ PostgreSQL) only takes changing the Spring
+profile, without modifying services or controllers. Every implementation satisfies the same
+`BlueprintPersistence` interface.
 
 ---
 
-## 📖 Actividades del laboratorio
+## Endpoints
 
-### 1. Familiarización con el código base
-- Revisa el paquete `model` con las clases `Blueprint` y `Point`.  
-- Entiende la capa `persistence` con `InMemoryBlueprintPersistence`.  
-- Analiza la capa `services` (`BlueprintsServices`) y el controlador `BlueprintsAPIController`.
+Base URL: `http://localhost:8080/api/v1/blueprints`
 
-### 2. Migración a persistencia en PostgreSQL
-- Configura una base de datos PostgreSQL (puedes usar Docker).  
-- Implementa un nuevo repositorio `PostgresBlueprintPersistence` que reemplace la versión en memoria.  
-- Mantén el contrato de la interfaz `BlueprintPersistence`.  
+| Method | Path | Description | Success HTTP |
+|--------|------|-------------|--------------|
+| `GET` | `/` | List all blueprints | `200` |
+| `GET` | `/{author}` | Blueprints by author | `200` |
+| `GET` | `/{author}/{name}` | A specific blueprint | `200` |
+| `POST` | `/` | Create a new blueprint | `201` |
+| `PUT` | `/{author}/{name}/points` | Add a point to a blueprint | `202` |
 
-### 3. Buenas prácticas de API REST
-- Cambia el path base de los controladores a `/api/v1/blueprints`.  
-- Usa **códigos HTTP** correctos:  
-  - `200 OK` (consultas exitosas).  
-  - `201 Created` (creación).  
-  - `202 Accepted` (actualizaciones).  
-  - `400 Bad Request` (datos inválidos).  
-  - `404 Not Found` (recurso inexistente).  
-- Implementa una clase genérica de respuesta uniforme:
-  ```java
-  public record ApiResponse<T>(int code, String message, T data) {}
-  ```
-  Ejemplo JSON:
-  ```json
-  {
-    "code": 200,
-    "message": "execute ok",
-    "data": { "author": "john", "name": "house", "points": [...] }
-  }
-  ```
+### Uniform response
 
-### 4. OpenAPI / Swagger
-- Configura `springdoc-openapi` en el proyecto.  
-- Expón documentación automática en `/swagger-ui.html`.  
-- Anota endpoints con `@Operation` y `@ApiResponse`.
+Every response (success or error) shares the same contract through `ApiResponse<T>`:
 
-### 5. Filtros de *Blueprints*
-- Implementa filtros:
-  - **RedundancyFilter**: elimina puntos duplicados consecutivos.  
-  - **UndersamplingFilter**: conserva 1 de cada 2 puntos.  
-- Activa los filtros mediante perfiles de Spring (`redundancy`, `undersampling`).  
+```json
+{
+  "code": 200,
+  "message": "execute ok",
+  "data": { "author": "john", "name": "kitchen", "points": [ { "x": 1, "y": 1 } ] }
+}
+```
+
+### HTTP codes and error handling
+
+A global handler (`GlobalExceptionHandler`) translates exceptions into clear responses:
+
+| Code | When |
+|------|------|
+| `200 OK` | Successful query |
+| `201 Created` | Blueprint created |
+| `202 Accepted` | Point added |
+| `400 Bad Request` | Invalid data (validation) |
+| `404 Not Found` | Author or blueprint not found |
+| `409 Conflict` | Attempt to create a duplicate blueprint |
 
 ---
 
-## ✅ Entregables
+## How to run it
 
-1. Repositorio en GitHub con:  
-   - Código fuente actualizado.  
-   - Configuración PostgreSQL (`application.yml` o script SQL).  
-   - Swagger/OpenAPI habilitado.  
-   - Clase `ApiResponse<T>` implementada.  
+### Requirements
+- **JDK 21**
+- Maven 3.9+ (or use the bundled `./mvnw` wrapper)
+- Docker (only if you want to use the PostgreSQL profile)
 
-2. Documentación:  
-   - Informe de laboratorio con instrucciones claras.  
-   - Evidencia de consultas en Swagger UI y evidencia de mensajes en la base de datos.  
-   - Breve explicación de buenas prácticas aplicadas.  
+### Option A — In memory (no database)
+
+```bash
+mvn spring-boot:run
+```
+
+The app starts at `http://localhost:8080` keeping data in memory.
+
+### Option B — With PostgreSQL (`postgres` profile)
+
+1. Start the database (exposes PostgreSQL on host port **5434**):
+
+   ```bash
+   docker compose up -d
+   ```
+
+2. Run the app with the `postgres` profile:
+
+   ```bash
+   mvn spring-boot:run -Dspring-boot.run.profiles=postgres
+   ```
+
+   > **On PowerShell**, wrap the argument in quotes so it doesn't get split:
+   > ```powershell
+   > mvn spring-boot:run "-Dspring-boot.run.profiles=postgres"
+   > ```
+
+Hibernate creates the schema automatically (`ddl-auto=update`). The default connection
+(`jdbc:postgresql://localhost:5434/blueprintsdb`, user/password `blueprints`) matches
+`docker-compose.yml`; it can be overridden with the `DB_URL`, `DB_USER`, `DB_PASSWORD`
+environment variables.
 
 ---
 
-## 📊 Criterios de evaluación
+## Spring profiles
 
-| Criterio | Peso |
-|----------|------|
-| Diseño de API (versionamiento, DTOs, ApiResponse) | 25% |
-| Migración a PostgreSQL (repositorio y persistencia correcta) | 25% |
-| Uso correcto de códigos HTTP y control de errores | 20% |
-| Documentación con OpenAPI/Swagger + README | 15% |
-| Pruebas básicas (unitarias o de integración) | 15% |
+| Profile | Effect |
+|---------|--------|
+| *(default)* | In-memory persistence |
+| `postgres` | PostgreSQL persistence via JPA |
+| `redundancy` | Enables `RedundancyFilter` when querying a blueprint |
+| `undersampling` | Enables `UndersamplingFilter` when querying a blueprint |
 
-**Bonus**:  
+The **filters** transform points when querying a single blueprint without altering what is
+stored: `RedundancyFilter` removes consecutive duplicate points and `UndersamplingFilter`
+keeps one out of every two. With no filter profile active, `IdentityFilter` is used (it
+changes nothing).
 
-- Imagen de contenedor (`spring-boot:build-image`).  
-- Métricas con Actuator.  
+---
+
+## Interactive documentation (Swagger)
+
+With the app running:
+
+- Swagger UI: <http://localhost:8080/swagger-ui.html>
+- OpenAPI JSON: <http://localhost:8080/v3/api-docs>
+
+---
+
+## Quick examples (curl)
+
+```bash
+# List all
+curl -s http://localhost:8080/api/v1/blueprints
+
+# Create a blueprint
+curl -i -X POST http://localhost:8080/api/v1/blueprints \
+  -H 'Content-Type: application/json' \
+  -d '{"author":"john","name":"kitchen","points":[{"x":1,"y":1},{"x":2,"y":2}]}'
+
+# Query one
+curl -s http://localhost:8080/api/v1/blueprints/john/kitchen
+
+# Add a point
+curl -i -X PUT http://localhost:8080/api/v1/blueprints/john/kitchen/points \
+  -H 'Content-Type: application/json' \
+  -d '{"x":9,"y":9}'
+```
+
+---
+
+## Tests
+
+```bash
+mvn test
+```
+
+Includes a smoke test (`BlueprintsSmokeTest`) that validates the application context starts.
+
+---
+
+## Evidence
+
+[`docs/evidencias-postgres.md`](docs/evidencias-postgres.md) documents, with screenshots, the
+full behavior on PostgreSQL: startup with the profile, a walkthrough of the endpoints (happy
+path and error cases with their HTTP codes) and verification that the data is actually
+persisted in the database.
