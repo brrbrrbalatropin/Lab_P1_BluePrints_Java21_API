@@ -12,15 +12,14 @@ base de datos PostgreSQL real (perfil de Spring `postgres`), respetando el contr
 ```bash
 docker compose up -d
 docker ps --filter "name=blueprints-postgres"
-# blueprints-postgres | Up (healthy) | 0.0.0.0:5434->5432/tcp
 ```
-
+![img_1.png](img_1.png)
 ## 2. Arranque de la app con el perfil `postgres`
 
 ```powershell
 mvn spring-boot:run -Dspring-boot.run.profiles=postgres
 ```
-
+![img_3.png](img_3.png)
 Al arrancar, Hibernate crea automáticamente el esquema (`ddl-auto=update`):
 
 ```sql
@@ -51,7 +50,7 @@ Started BlueprintsApplication in 3.92 seconds
 | Consultar uno | `GET /api/v1/blueprints/john/kitchen` | `{"code":200,"message":"execute ok","data":{"author":"john","name":"kitchen","points":[{"x":1,"y":1},{"x":2,"y":2}]}}` | 200 |
 | Agregar punto | `PUT /api/v1/blueprints/john/kitchen/points` body `{"x":9,"y":9}` | — | **202** |
 | Consultar tras agregar | `GET /api/v1/blueprints/john/kitchen` | `...points":[{"x":1,"y":1},{"x":2,"y":2},{"x":9,"y":9}]}` | 200 |
-
+![img.png](img.png)
 ## 4. Prueba de códigos de error
 
 | Caso | Respuesta | HTTP |
@@ -60,7 +59,7 @@ Started BlueprintsApplication in 3.92 seconds
 | Blueprint inexistente | `{"code":404,"message":"Blueprint not found: john/noexiste","data":null}` | **404** |
 | Crear duplicado | `{"code":409,"message":"Blueprint already exists: john:kitchen","data":null}` | **409** |
 | Validación (author en blanco) | `{"code":400,"message":"author: no debe estar vacío","data":null}` | **400** |
-
+![img_2.png](img_2.png)
 ## 5. Evidencia de persistencia en la base de datos
 
 Consultando directamente PostgreSQL (los datos creados por la API quedan persistidos):
@@ -69,27 +68,12 @@ Consultando directamente PostgreSQL (los datos creados por la API quedan persist
 docker exec blueprints-postgres psql -U blueprints -d blueprintsdb \
   -c "SELECT * FROM blueprints ORDER BY id;"
 ```
-
-```
- id | author |  name
-----+--------+---------
-  1 | john   | kitchen
-(1 row)
-```
-
+![img_4.png](img_4.png)
 ```bash
 docker exec blueprints-postgres psql -U blueprints -d blueprintsdb \
   -c "SELECT blueprint_id, point_index, x, y FROM blueprint_points ORDER BY blueprint_id, point_index;"
 ```
-
-```
- blueprint_id | point_index | x | y
---------------+-------------+---+---
-            1 |           0 | 1 | 1
-            1 |           1 | 2 | 2
-            1 |           2 | 9 | 9
-(3 rows)
-```
+![img_5.png](img_5.png)
 
 Los 3 puntos (los 2 del POST + el agregado por PUT) están almacenados y **ordenados**
 mediante `point_index`, confirmando la persistencia real en PostgreSQL.
